@@ -1,9 +1,8 @@
 package main
 
 import (
-	"errors"
-	"fmt"
-	"time"
+	"database/sql"
+	"log"
 
 	jwtware "github.com/gofiber/contrib/jwt"
 	"github.com/gofiber/fiber/v2"
@@ -12,87 +11,30 @@ import (
 )
 
 const (
-	contextKeyUser = "user"
+	contextKeyUser = "ip"
 )
 
 func main() {
 	app := fiber.New()
 
-	authStorage := &AuthStorage{map[string]User{}}
-	authHandler := &AuthHandler{storage: authStorage}
-	userHandler := &UserHandler{storage: authStorage}
-
-	// Группа обработчиков, которые доступны неавторизованным пользователям
-	publicGroup := app.Group("")
-	publicGroup.Post("/register", authHandler.Register)
-	publicGroup.Post("/login", authHandler.Login)
-
-	// Группа обработчиков, которые требуют авторизации
-	authorizedGroup := app.Group("")
-	authorizedGroup.Use(jwtware.New(jwtware.Config{
+	app.Use(jwtware.New(jwtware.Config{
 		SigningKey: jwtware.SigningKey{
 			Key: jwtSecretKey,
 		},
 		ContextKey: contextKeyUser,
 	}))
-	authorizedGroup.Get("/profile", userHandler.Profile)
+	app.Get("/profile", Profile)
+	app.Post("/refresh", Refresh)
 
 	logrus.Fatal(app.Listen(":8080"))
 }
 
-type (
-	// Обработчик HTTP-запросов на регистрацию и аутентификацию пользователей
-	AuthHandler struct {
-		storage *AuthStorage
-	}
+var db *sql.DB
 
-	// Хранилище зарегистрированных пользователей
-	// Данные хранятся в оперативной памяти
-	AuthStorage struct {
-		users map[string]User
-	}
-
-	// Структура данных с информацией о пользователе
-	User struct {
-		Email    string
-		Name     string
-		password string
-	}
-)
-
-// Структура HTTP-запроса на регистрацию пользователя
-type RegisterRequest struct {
-	Email    string `json:"email"`
-	Name     string `json:"name"`
-	Password string `json:"password"`
-}
-
-// Обработчик HTTP-запросов на регистрацию пользователя
-func (h *AuthHandler) Register(c *fiber.Ctx) error {
-	regReq := RegisterRequest{}
-	if err := c.BodyParser(&regReq); err != nil {
-		return fmt.Errorf("body parser: %w", err)
-	}
-
-	// Проверяем, что пользователь с таким email еще не зарегистрирован
-	if _, exists := h.storage.users[regReq.Email]; exists {
-		return errors.New("the user already exists")
-	}
-
-	// Сохраняем в память нового зарегистрированного пользователя
-	h.storage.users[regReq.Email] = User{
-		Email:    regReq.Email,
-		Name:     regReq.Name,
-		password: regReq.Password,
-	}
-
-	return c.SendStatus(fiber.StatusCreated)
-}
-
-// Структура HTTP-запроса на вход в аккаунт
-type LoginRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
+type User struct {
+	GUID  string
+	Email string
+	IP    string
 }
 
 // Структура HTTP-ответа на вход в аккаунт
@@ -101,39 +43,39 @@ type LoginResponse struct {
 	AccessToken string `json:"access_token"`
 }
 
-var (
-	errBadCredentials = errors.New("email or password is incorrect")
-)
-
 // Секретный ключ для подписи JWT-токена
 // Необходимо хранить в безопасном месте
 var jwtSecretKey = []byte("very-secret-key")
 
 // Обработчик HTTP-запросов на вход в аккаунт
-func (h *AuthHandler) Login(c *fiber.Ctx) error {
-	regReq := LoginRequest{}
-	if err := c.BodyParser(&regReq); err != nil {
-		return fmt.Errorf("body parser: %w", err)
-	}
+func Refresh(c *fiber.Ctx) error {
+	var user User
+	userGuid := c.Context().Value("guid")
+	//	refreshToken := c.Context().Value("token")
 
 	// Ищем пользователя в памяти приложения по электронной почте
-	user, exists := h.storage.users[regReq.Email]
+	row := db.QueryRow("SELECT * FROM users WHERE guid = ?", userGuid)
 	// Если пользователь не найден, возвращаем ошибку
-	if !exists {
-		return errBadCredentials
-	}
-	// Если пользователь найден, но у него другой пароль, возвращаем ошибку
-	if user.password != regReq.Password {
-		return errBadCredentials
+	if err := row.Scan(&user.GUID, &user.Email, &user.IP); err != nil {
+		return err
 	}
 
+	return nil
+}
+
+// Структура HTTP-ответа с информацией о пользователе
+type ProfileResponse struct {
+	JWT string `json:"jwt"`
+}
+
+func jwtFromUser(user User) string {
 	// Генерируем JWT-токен для пользователя,
 	// который он будет использовать в будущих HTTP-запросах
 
 	// Генерируем полезные данные, которые будут храниться в токене
 	payload := jwt.MapClaims{
 		"sub": user.Email,
-		"exp": time.Now().Add(time.Hour * 72).Unix(),
+		"ip":  user.IP,
 	}
 
 	// Создаем новый JWT-токен и подписываем его по алгоритму HS256
@@ -141,58 +83,29 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 
 	t, err := token.SignedString(jwtSecretKey)
 	if err != nil {
-		logrus.WithError(err).Error("JWT token signing")
-		return c.SendStatus(fiber.StatusInternalServerError)
+		log.Fatal(err)
+		return ""
 	}
 
-	return c.JSON(LoginResponse{AccessToken: t})
-}
-
-// Обработчик HTTP-запросов, которые связаны с пользователем
-type UserHandler struct {
-	storage *AuthStorage
-}
-
-// Структура HTTP-ответа с информацией о пользователе
-type ProfileResponse struct {
-	Email string `json:"email"`
-	Name  string `json:"name"`
-}
-
-func jwtPayloadFromRequest(c *fiber.Ctx) (jwt.MapClaims, bool) {
-	jwtToken, ok := c.Context().Value(contextKeyUser).(*jwt.Token)
-	if !ok {
-		logrus.WithFields(logrus.Fields{
-			"jwt_token_context_value": c.Context().Value(contextKeyUser),
-		}).Error("wrong type of JWT token in context")
-		return nil, false
-	}
-
-	payload, ok := jwtToken.Claims.(jwt.MapClaims)
-	if !ok {
-		logrus.WithFields(logrus.Fields{
-			"jwt_token_claims": jwtToken.Claims,
-		}).Error("wrong type of JWT token claims")
-		return nil, false
-	}
-
-	return payload, true
+	return t
 }
 
 // Обработчик HTTP-запросов на получение информации о пользователе
-func (h *UserHandler) Profile(c *fiber.Ctx) error {
-	jwtPayload, ok := jwtPayloadFromRequest(c)
-	if !ok {
+func Profile(c *fiber.Ctx) error {
+	var user User
+
+	userGuid := c.Params("guid", "")
+	if userGuid == "" {
 		return c.SendStatus(fiber.StatusUnauthorized)
 	}
 
-	userInfo, ok := h.storage.users[jwtPayload["sub"].(string)]
-	if !ok {
-		return errors.New("user not found")
+	row := db.QueryRow("SELECT * FROM users WHERE guid = ?", userGuid)
+
+	if err := row.Scan(&user.GUID, &user.Email, &user.IP); err != nil {
+		return err
 	}
 
 	return c.JSON(ProfileResponse{
-		Email: userInfo.Email,
-		Name:  userInfo.Name,
+		JWT: jwtFromUser(user),
 	})
 }
