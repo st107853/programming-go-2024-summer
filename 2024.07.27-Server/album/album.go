@@ -13,7 +13,7 @@ type Album struct {
 	ID     int64
 	Title  string
 	Artist string
-	Price  float32
+	Price  float64
 }
 
 var db *sql.DB
@@ -45,7 +45,7 @@ func Connect() {
 func Albums() ([]Album, error) {
 	var albums []Album
 
-	rows, err := db.Query("SELECT * FROM albun")
+	rows, err := db.Query("SELECT * FROM album")
 	if err != nil {
 		return nil, fmt.Errorf("albums: %v", err)
 	}

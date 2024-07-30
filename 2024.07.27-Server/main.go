@@ -14,7 +14,7 @@ func main() {
 	router := gin.Default()
 	router.GET("/albums", getAlbums)
 	router.GET("/albums/:id", getAlbumByID)
-	router.POST("/albums", postAlbums)
+	router.POST("/albums/:title/:artist/:price", postAlbums)
 
 	router.Run("localhost:8080")
 }
@@ -31,18 +31,19 @@ func getAlbums(c *gin.Context) {
 
 // postAlbums adds an album from JSON received in the request body.
 func postAlbums(c *gin.Context) {
-	var newAlbum album.Album
+	price, _ := strconv.ParseFloat(c.Param("price"), 64)
 
-	//Call BindJSON to bind the received JSON to newAlbum.
-	if err := c.BindJSON(&newAlbum); err != nil {
-		return
+	var newAlbum = album.Album{
+		Title:  c.Param("title"),
+		Artist: c.Param("artist"),
+		Price:  price,
 	}
 
 	//Add the new album to the slice.
 	id, err := album.AddAlbum(newAlbum)
 
 	if err != nil {
-		c.IndentedJSON(http.StatusNotExtended, "")
+		c.IndentedJSON(http.StatusNotExtended, gin.H{"message": newAlbum})
 		return
 	}
 	mes := "new album id: " + strconv.Itoa(int(id))
