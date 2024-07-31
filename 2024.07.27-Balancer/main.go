@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"net/http/httputil"
@@ -9,67 +8,35 @@ import (
 	"sync"
 )
 
-type (
-	beckend struct {
-		URL          *url.URL
-		Alive        bool
-		Mux          sync.RWMutex
-		ReverseProxy *httputil.ReverseProxy
-	}
-
-	serverPool struct {
-		Servers []beckend
-		Current uint64
-	}
-)
-
-func (b *beckend) isAlive() bool {
-	b.Mux.RLock()
-	defer b.Mux.RUnlock()
-	return b.Alive
-}
-
-func (s *serverPool) getNextPeer() *beckend {
-	l := len(s.Servers)
-	next := (int(s.Current) + 1) % l
-	for i := range l {
-		idx := (next + i) % l
-		if s.Servers[idx].isAlive() {
-			s.Current = uint64(idx)
-			return &s.Servers[idx]
-		}
-	}
-	return nil
-}
-
-// lb load balances the incoming request
-func lb(w http.ResponseWriter, r *http.Request) {
-	peer := servPool.getNextPeer()
-	if peer != nil {
-		peer.ReverseProxy.ServeHTTP(w, r)
-		return
-	}
-	http.Error(w, "Service not available", http.StatusServiceUnavailable)
-}
-
-var servPool serverPool
+var nextServerIndex int32 = 0
 
 func main() {
-	var serverList string
-	var port = 3030
+	var mu sync.Mutex
 
-	if len(serverList) == 0 {
-		log.Fatal("Please provide one or more backends to load balance")
+	// define origin server list to load balance the requests
+	originServerList := []string{
+		"http://localhost:8081",
+		"http://localhost:8082",
 	}
 
-	// create http server
-	server := http.Server{
-		Addr:    fmt.Sprintf(":%d", port),
-		Handler: http.HandlerFunc(lb),
-	}
+	loadBalancerHandler := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		// use mutex to prevent data race
+		mu.Lock()
 
-	log.Printf("Load Balancer started at :%d\n", port)
-	if err := server.ListenAndServe(); err != nil {
-		log.Fatal(err)
-	}
+		// get next server to send a request to
+		originServerURL, _ := url.Parse(originServerList[(nextServerIndex)%2])
+
+		// increment next server value
+		nextServerIndex++
+
+		mu.Unlock()
+
+		// use existing reverse proxy from httputil to route
+		// a request to previously selected server url
+		reverseProxy := httputil.NewSingleHostReverseProxy(originServerURL)
+
+		reverseProxy.ServeHTTP(rw, req)
+	})
+
+	log.Fatal(http.ListenAndServe(":8080", loadBalancerHandler))
 }
