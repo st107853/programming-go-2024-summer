@@ -16,7 +16,7 @@ func main() {
 	router.GET("/albums/:id", getAlbumByID)
 	router.POST("/albums/:title/:artist/:price", postAlbums)
 
-	router.Run("localhost:8080")
+	router.Run()
 }
 
 // getAlbums responds with the list of all albums as JSON
