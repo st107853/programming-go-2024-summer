@@ -6,6 +6,7 @@ import (
 	"os"
 	"runtime"
 	"strconv"
+	"time"
 
 	"algorithm.com/naive"
 )
@@ -18,9 +19,15 @@ func main() {
 
 	runtime.ReadMemStats(&memStats)
 
+	t0 := time.Now()
+
 	res := naive.FileScaner("./test.txt")
 
 	fmt.Println(res)
+
+	t1 := time.Now()
+
+	fmt.Println(t1.Sub(t0))
 
 	fmt.Printf("Total allocated memory (in bytes): %d\n", memStats.Alloc)
 	fmt.Printf("Heap memory (in bytes): %d\n", memStats.HeapAlloc)
