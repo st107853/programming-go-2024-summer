@@ -1,4 +1,4 @@
-module algorithm.com/generics
+module sorting.com/generics
 
 go 1.22.5
 

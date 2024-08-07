@@ -16,7 +16,7 @@ import (
 
 func main() {
 
-	//	Create(10)
+	// Create(100)
 
 	// The variables to track time and memory spent
 	var memStats runtime.MemStats
