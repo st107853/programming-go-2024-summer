@@ -1,3 +1,4 @@
+// Package naive provides a "naive" algorithm for solving the test problem
 package naive
 
 import (
@@ -8,10 +9,16 @@ import (
 	"strings"
 )
 
+// InterAddr represents the type of converted string
 type InetAddr uint32
 
+// Result represents the HashSet
 var result = make(map[InetAddr]bool)
 
+// FilterScaner scans the file, fills the HashSet with strings converted to uint32
+// and counts unique values
+//
+// It has one parameter: a string with the value of the address of the file being scanned
 func FileScaner(name string) int {
 
 	file, err := os.Open(name)
@@ -21,7 +28,6 @@ func FileScaner(name string) int {
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
-	// optionally, resize scanner's capacity for lines over 64K
 
 	for scanner.Scan() {
 
@@ -30,6 +36,7 @@ func FileScaner(name string) int {
 
 		data := strings.Split(v, ".")
 
+		// Strings from data array converts to uint32 and adds to HashSet
 		for i := 0; i < 3; i++ {
 			val, _ := strconv.Atoi(data[i])
 
@@ -48,5 +55,6 @@ func FileScaner(name string) int {
 		fmt.Println(err)
 	}
 
+	// Return the number of unique addresses in this file
 	return len(result)
 }

@@ -15,12 +15,13 @@ func main() {
 
 	//	Create(10_000_000)
 
+	// The variables to track time and memory spent
 	var memStats runtime.MemStats
-
 	runtime.ReadMemStats(&memStats)
-
 	t0 := time.Now()
 
+	// Res is the result of the program's work
+	// It shows the number of unique addresses in this file
 	res := naive.FileScaner("./test.txt")
 
 	fmt.Println(res)
@@ -34,6 +35,9 @@ func main() {
 	fmt.Printf("Number of garbage collections: %d\n", memStats.NumGC)
 }
 
+// Create creates the "test.txt" file with n various IPv4 addresses
+//
+// It has one parameter: an int instance indicating the number of IPv4
 func Create(n int) {
 	file, err := os.Create("test.txt")
 
