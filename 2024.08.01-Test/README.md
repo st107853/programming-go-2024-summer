@@ -22,15 +22,15 @@ goroutines launched is calculated based on Amdahl's law.
 
 The table below shows the results of the time spent on the
 operation of the described algorithm and the naive algorithm
-from the any_way branch.
+from the simplification branch.
 
-+----------+------------+-----------+
-| amount   |	main	| any_way   |
-+----------+------------+-----------+
-| 10^4     | ~10ms  	|    ~5ms 	|
-| 10^5     | ~80ms  	|   ~35ms 	|
-| 10^6     | ~800ms 	| ~400ms 	|
-|  10^7    |  6-7s      |  5-6s 	|
-+----------+------------+-----------+
++----------+------------+------------------+
+| amount   |	main	| simplification   |
++----------+------------+------------------+
+| 10^4     | ~10ms  	|    ~5ms 	       |
+| 10^5     | ~80ms  	|   ~35ms 	       |
+| 10^6     | ~800ms 	| ~400ms 	       |
+|  10^7    |  6-7s      |  5-6s 	       |
++----------+------------+------------------+
 
 In all cases, from 101 to 104 kilobytes of memory were used.
