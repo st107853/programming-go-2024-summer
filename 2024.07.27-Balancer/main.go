@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"time"
 )
 
 type (
@@ -74,8 +75,11 @@ func main() {
 
 	// create http server
 	server := http.Server{
-		Addr:    fmt.Sprintf(":%d", port),
-		Handler: loadBalancerHandler,
+		Addr:         fmt.Sprintf(":%d", port),
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 90 * time.Second,
+		IdleTimeout:  120 * time.Second,
+		Handler:      loadBalancerHandler,
 	}
 
 	log.Printf("Load Balancer started at :%v\n", port)

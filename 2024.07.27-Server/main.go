@@ -1,68 +1,97 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
 	"strconv"
+	"time"
 
-	"github.com/gin-gonic/gin"
 	"pet-progect.com/album"
 )
 
 func main() {
 	album.Connect()
 
-	router := gin.Default()
-	router.GET("/albums", getAlbums)
-	router.GET("/albums/:id", getAlbumByID)
-	router.POST("/albums/:title/:artist/:price", postAlbums)
+	var port = 8081
 
-	router.Run()
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("GET /albums", getAlbums)
+	mux.HandleFunc("GET /albums/{id}", getAlbumByID)
+	mux.HandleFunc("POST /albums/{title}/{artist}/{price}", postAlbums)
+
+	// create http server
+	server := http.Server{
+		Addr:         fmt.Sprintf(":%d", port),
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 90 * time.Second,
+		IdleTimeout:  120 * time.Second,
+		Handler:      mux,
+	}
+
+	log.Printf("Server started at :%v\n", port)
+	if err := server.ListenAndServe(); err != nil {
+		log.Fatal(err)
+	}
 }
 
 // getAlbums responds with the list of all albums as JSON
-func getAlbums(c *gin.Context) {
+func getAlbums(w http.ResponseWriter, r *http.Request) {
 	alb, err := album.Albums()
 	if err != nil {
-		c.IndentedJSON(http.StatusNotFound, alb)
+		http.Error(w, err.Error(), 500)
 		return
 	}
-	c.IndentedJSON(http.StatusOK, alb)
+
+	out, err := json.Marshal(alb)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	w.Write(out)
 }
 
 // postAlbums adds an album from JSON received in the request body.
-func postAlbums(c *gin.Context) {
-	price, _ := strconv.ParseFloat(c.Param("price"), 64)
+func postAlbums(w http.ResponseWriter, r *http.Request) {
+	price, _ := strconv.ParseFloat(r.PathValue("price"), 64)
 
 	var newAlbum = album.Album{
-		Title:  c.Param("title"),
-		Artist: c.Param("artist"),
+		Title:  r.PathValue("title"),
+		Artist: r.PathValue("artist"),
 		Price:  price,
 	}
 
 	//Add the new album to the slice.
 	id, err := album.AddAlbum(newAlbum)
-
 	if err != nil {
-		c.IndentedJSON(http.StatusNotExtended, gin.H{"message": newAlbum})
+		http.Error(w, err.Error(), 500)
 		return
 	}
 	mes := "new album id: " + strconv.Itoa(int(id))
-	c.IndentedJSON(http.StatusCreated, gin.H{"message": mes})
+	w.Write([]byte(mes))
 }
 
 // getAlbumByID locates the album whose ID value matches the id
 // parameter sent by the client, then returns that album as a response.
-func getAlbumByID(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
+func getAlbumByID(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.Atoi(r.PathValue("id"))
 
 	//loop over the list of albums, looking for
 	//an album whose ID value matchea the parameter.
 	alb, err := album.AlbumByID(id)
-
 	if err != nil {
-		c.IndentedJSON(http.StatusNotFound, gin.H{"message": "album not found"})
+		http.Error(w, err.Error(), 500)
 		return
 	}
 
-	c.IndentedJSON(http.StatusOK, alb)
+	out, err := json.Marshal(alb)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	w.Write(out)
 }
