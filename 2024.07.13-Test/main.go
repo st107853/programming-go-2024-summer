@@ -21,7 +21,8 @@ var db *sql.DB
 
 func main() {
 	var err error
-	//Capture connection propeties.
+
+	// Capture connection propeties.
 	cfg := mysql.Config{
 		User:   os.Getenv("DBUSER"),
 		Passwd: os.Getenv("DBPASS"),
@@ -29,6 +30,7 @@ func main() {
 		Addr:   "localhost:3306",
 		DBName: "testtask",
 	}
+
 	//Get a database handle.
 	db, err = sql.Open("mysql", cfg.FormatDSN())
 	if err != nil {
@@ -45,12 +47,12 @@ func main() {
 
 	var port = 8080
 
+	// Server handle func
 	mux := http.NewServeMux()
-
 	mux.HandleFunc("GET /profile/{guid}", Profile)
 	mux.HandleFunc("POST /refresh/{guid}/{token}", Refresh)
 
-	// create http server
+	// Create http server
 	server := http.Server{
 		Addr:         fmt.Sprintf(":%d", port),
 		ReadTimeout:  30 * time.Second,
@@ -71,7 +73,9 @@ type User struct {
 	IP    string
 }
 
-// Handler of http requests for token updates
+// Refresh performs a Refresh operation on a pair of Access, Refresh tokens
+//
+// It has two parameter: w to construct an HTTP response and r is an HTTP request received by the server
 func Refresh(w http.ResponseWriter, r *http.Request) {
 	var user User
 
@@ -106,10 +110,8 @@ func Refresh(w http.ResponseWriter, r *http.Request) {
 
 	//Sending an email from to the mail if the user's IP has changed
 	if user.IP != strings.Split(r.RemoteAddr, ":")[0] {
-		fmt.Println("user ip pu-pu-pu")
 		if err := emailSender(user.Email); err != nil {
 			http.Error(w, err.Error(), 500)
-			fmt.Println("some problem")
 		}
 	}
 
@@ -125,6 +127,8 @@ type ProfileResponse struct {
 }
 
 // Handler for HTTP requests for user information
+//
+// It has two parameter: w to construct an HTTP response and r is an HTTP request received by the server
 func Profile(w http.ResponseWriter, r *http.Request) {
 	var user User
 
@@ -134,7 +138,7 @@ func Profile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	//Getting data from MySql
+	// Getting data from MySql
 	row := db.QueryRow("SELECT * FROM users WHERE guids = ?", userGuid)
 
 	if err := row.Scan(&user.GUID, &user.Email, &user.IP); err != nil {
@@ -142,6 +146,7 @@ func Profile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Is base64 encoding of refresh token
 	base64Token := base64.StdEncoding.EncodeToString([]byte(refreshToken(user)))
 
 	out, err := json.Marshal(ProfileResponse{
@@ -154,6 +159,7 @@ func Profile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Return new access and refresh tokens
 	w.Write(out)
 }
 
@@ -162,7 +168,9 @@ var jwtSecretKey = []byte("very-secret-key")
 
 const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
-// Updating the key after refresh
+// randString updats the key after refresh func
+//
+// It has one parameter: n int instance indicating the length of the returned array
 func randString(n int) []byte {
 	b := make([]byte, n)
 	for i := range b {
@@ -171,7 +179,9 @@ func randString(n int) []byte {
 	return b
 }
 
-// Generating a JWT token
+// jwtFromUser generats a JWT token
+//
+// It has one parameter: user instance indicating the user for which the token is returned
 func jwtFromUser(user User) string {
 
 	//Generating useful data that will be stored in the token
@@ -192,15 +202,17 @@ func jwtFromUser(user User) string {
 	return t
 }
 
-// Generating a JWT refresh token
+// refreshToken generats a JWT refresh token
+//
+// It has one parameter: user instance indicating the user for which the token is returned
 func refreshToken(user User) string {
 
-	//Generating useful data that will be stored in the token
+	// Generating useful data that will be stored in the token
 	payload := jwt.MapClaims{
 		"sub": user.GUID,
 	}
 
-	//Creating a new JWT token and signing it with the HS512 algorithm
+	// Creating a new JWT token and signing it with the HS512 algorithm
 	token := jwt.NewWithClaims(jwt.SigningMethodHS512, payload)
 
 	t, err := token.SignedString(jwtSecretKey)
@@ -212,6 +224,9 @@ func refreshToken(user User) string {
 	return t
 }
 
+// emailSender sends the mail to the user's email
+//
+// It has one parameter: rcpt string instance indicating the recipient's mail adress
 func emailSender(rcpt string) error {
 	// Connect to the remote SMTP server.
 	c, err := smtp.Dial("mail.example.com:25")
@@ -220,7 +235,7 @@ func emailSender(rcpt string) error {
 	}
 
 	// Set the sender and recipient first
-	if err := c.Mail("katelugovaua0@gmail.com"); err != nil {
+	if err := c.Mail("example@gmail.com"); err != nil {
 		return err
 	}
 
