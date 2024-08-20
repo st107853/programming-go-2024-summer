@@ -1,20 +1,25 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
 	"pet-progect.com/album"
 )
 
+var port = os.Getenv("PORT")
+
 func main() {
 	album.Connect()
 
-	var port = 8081
+	balancConnecting()
 
 	mux := http.NewServeMux()
 
@@ -24,7 +29,7 @@ func main() {
 
 	// create http server
 	server := http.Server{
-		Addr:         fmt.Sprintf(":%d", port),
+		Addr:         fmt.Sprintf(":%v", port),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 90 * time.Second,
 		IdleTimeout:  120 * time.Second,
@@ -41,16 +46,19 @@ func main() {
 func getAlbums(w http.ResponseWriter, r *http.Request) {
 	alb, err := album.Albums()
 	if err != nil {
+		slog.Error("Get album: %v", err.Error())
 		http.Error(w, err.Error(), 500)
 		return
 	}
 
 	out, err := json.Marshal(alb)
 	if err != nil {
+		slog.Error("Get album: %v", err.Error())
 		http.Error(w, err.Error(), 500)
 		return
 	}
 
+	slog.Info("Get albums")
 	w.Write(out)
 }
 
@@ -67,9 +75,13 @@ func postAlbums(w http.ResponseWriter, r *http.Request) {
 	//Add the new album to the slice.
 	id, err := album.AddAlbum(newAlbum)
 	if err != nil {
+		slog.Error("Post albun: %v", err.Error())
 		http.Error(w, err.Error(), 500)
 		return
 	}
+
+	slog.Info("Post albums")
+
 	mes := "new album id: " + strconv.Itoa(int(id))
 	w.Write([]byte(mes))
 }
@@ -83,15 +95,47 @@ func getAlbumByID(w http.ResponseWriter, r *http.Request) {
 	//an album whose ID value matchea the parameter.
 	alb, err := album.AlbumByID(id)
 	if err != nil {
+		slog.Error("Get album by id: %v", err.Error())
 		http.Error(w, err.Error(), 500)
 		return
 	}
 
 	out, err := json.Marshal(alb)
 	if err != nil {
+		slog.Error("Get album by id: %v", err.Error())
 		http.Error(w, err.Error(), 500)
 		return
 	}
 
+	slog.Info("Get album by id")
+
 	w.Write(out)
+}
+
+func balancConnecting() {
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	req, err := http.NewRequestWithContext(context.Background(),
+		http.MethodGet, "http://localhost:8080/", nil)
+	if err != nil {
+		panic(err)
+	}
+
+	str := fmt.Sprintf("http://localhost:%v", port)
+
+	req.Header.Add("TODO", "Add me")
+	req.Header.Add("serv", str)
+
+	res, err := client.Do(req)
+	if err != nil {
+		panic(err)
+	}
+
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		fmt.Println(res.StatusCode)
+		return
+	}
 }

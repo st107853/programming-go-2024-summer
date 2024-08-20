@@ -28,6 +28,8 @@ func (sp *serverPool) add(serv string) {
 		URL:   servUrl,
 		Alive: true,
 	})
+
+	fmt.Printf("added %v\n", serv)
 }
 
 func (s *serverPool) getNextPeer() *beckend {
@@ -52,7 +54,9 @@ var loadBalancerHandler = http.HandlerFunc(func(rw http.ResponseWriter, req *htt
 	originServerURL := newPeer.URL
 
 	if originServerURL == nil {
-		log.Fatal("no url")
+		newPeer.Alive = false
+		newPeer = serverList.getNextPeer()
+		originServerURL = newPeer.URL
 	}
 
 	// use existing reverse proxy from httputil to route
@@ -62,16 +66,24 @@ var loadBalancerHandler = http.HandlerFunc(func(rw http.ResponseWriter, req *htt
 	reverseProxy.ServeHTTP(rw, req)
 })
 
+func Adder(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Println(r.Header.Get("TODO"))
+		if r.Header.Get("TODO") == "Add me" {
+			serverList.add(r.Header.Get("serv"))
+
+			fmt.Println(serverList)
+			return
+		}
+
+		h.ServeHTTP(w, r)
+	})
+}
+
+var mux = Adder(loadBalancerHandler)
+
 func main() {
 	var port = 8080
-	serverList.Current = 0
-
-	serverList.add("http://localhost:8081")
-	serverList.add("http://localhost:8082")
-
-	if len(serverList.Servers) == 0 {
-		log.Fatal("Please provide one or more backends to load balance")
-	}
 
 	// create http server
 	server := http.Server{
@@ -79,7 +91,7 @@ func main() {
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 90 * time.Second,
 		IdleTimeout:  120 * time.Second,
-		Handler:      loadBalancerHandler,
+		Handler:      mux,
 	}
 
 	log.Printf("Load Balancer started at :%v\n", port)
