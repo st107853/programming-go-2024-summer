@@ -1,92 +1,36 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
-	"log"
 	"math/rand/v2"
 	"os"
 	"runtime"
 	"strconv"
-
+	"strings"
 	"sync"
 	"time"
 
-	"sorting.com/generics"
+	"test.com/shard"
 )
 
 func main() {
 
-	// Create(100)
+	//	Create(1_000_000)
 
 	// The variables to track time and memory spent
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
 	t0 := time.Now()
 
-	// Data from the file and its length
-	data, l := generics.FileScaner("./test.txt")
-
-	t2 := time.Now()
-	fmt.Println(t2.Sub(t0))
-
-	generics.QuickSort(data, 0, l-1)
-
-	// Sum is the result of the program's work
+	// Res is the result of the program's work
 	// It shows the number of unique addresses in this file
-	sum := 1
+	res := FileScaner("./test.txt")
+	fmt.Printf("we got result: %v\n", res)
 
-	// The gr shows the optimal amount of goroutines based on Amdahl’s law
-	gr := min(l/(10^5), 1000)
-
-	switch {
-	case gr < 10:
-		for j := 0; j < l-1; j++ {
-			if data[j] != data[j+1] {
-				sum++
-			}
-		}
-	default:
-		var wg sync.WaitGroup
-
-		// Chan for tracking the result of goroutine work
-		res := make(chan int, gr)
-		wg.Add(gr - 1)
-
-		// The loop distributes the array into gr-1 goroutines
-		for i := 0; i < gr-1; i++ {
-			go func(p int) {
-				local := 0
-				j := (p * l / gr)
-				for ; j < ((p + 1) * l / gr); j++ {
-					if data[j] != data[j+1] {
-						local++
-					}
-				}
-				res <- local
-				wg.Done()
-			}(i)
-		}
-
-		// The last part of the array
-		for j := (gr - 1) * l / gr; j < l-1; j++ {
-			if data[j] != data[j+1] {
-				sum++
-			}
-		}
-		wg.Wait()
-
-		// Summarizing results from goroutines
-		for j := 0; j < gr-1; j++ {
-			v := <-res
-
-			sum += v
-		}
-	}
 	t1 := time.Now()
 
 	fmt.Println(t1.Sub(t0))
-
-	fmt.Println(sum)
 
 	fmt.Printf("Total allocated memory (in bytes): %d\n", memStats.Alloc)
 	fmt.Printf("Heap memory (in bytes): %d\n", memStats.HeapAlloc)
@@ -97,14 +41,10 @@ func main() {
 //
 // It has one parameter: an int instance indicating the number of IPv4
 func Create(n int) {
-	if n < 1 {
-		log.Fatal("it is not enough")
-	}
-
-	file, err := os.Create("test.txt")
+	file, err := os.Create("test2.txt")
 
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println("Unable to create")
 	}
 
 	defer file.Close()
@@ -118,4 +58,89 @@ func Create(n int) {
 
 		file.WriteString(text[:len(text)-1] + "\n")
 	}
+}
+
+// FilterScaner scans the file, fills the HashSet with strings converted to uint32
+// and counts unique values
+//
+// It has one parameter: a string with the value of the address of the file being scanned
+func FileScaner(name string) int {
+	var in = make(chan uint32, 1000)
+
+	file, err := os.Open(name)
+	if err != nil {
+		fmt.Println(err)
+	}
+	defer file.Close()
+
+	fi, err := file.Stat()
+	if err != nil {
+		panic(err)
+	}
+
+	scanner := bufio.NewScanner(file)
+
+	// Result represents the HashSet
+	n := int(min(255, fi.Size()/14275270+1))
+
+	go func() {
+		for scanner.Scan() {
+
+			var ipUint uint32
+			v := scanner.Text()
+
+			data := strings.Split(v, ".")
+
+			// Strings from data array converts to uint32 and adds to HashSet
+			for i := 0; i < 3; i++ {
+				val, _ := strconv.Atoi(data[i])
+
+				ipUint += uint32(val)
+				ipUint = ipUint << 8
+			}
+			val, _ := strconv.Atoi(data[3])
+			ipUint += uint32(val)
+
+			in <- ipUint
+		}
+		close(in)
+	}()
+
+	cnt := Split(in, n)
+
+	if err := scanner.Err(); err != nil {
+		fmt.Println(err)
+	}
+
+	// Return the number of unique addresses in this file
+	return cnt
+}
+
+func Split(source <-chan uint32, n int) int {
+	fmt.Println(n)
+	var wG sync.WaitGroup // Use WaitGroup to wait until
+	wG.Add(n * n)
+	var result = shard.NewShardedMap(n)
+	// Create the dests slice
+	// Create n destination channels
+
+	res := 0
+
+	for i := 0; i < n*n; i++ {
+		go func() {
+			cnt := 0
+			for val := range source {
+				if ok := result.Get(val); !ok {
+					result.Set(val, true)
+					cnt++
+
+				}
+			}
+			res += cnt
+			wG.Done()
+		}()
+	}
+	wG.Wait()
+
+	return res
 }
