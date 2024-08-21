@@ -124,7 +124,8 @@ func Split(source <-chan uint32, n int) int {
 	// Create the dests slice
 	// Create n destination channels
 
-	res := 0
+	res := make(chan int, 100)
+	cnt := 0
 
 	for i := 0; i < n*n; i++ {
 		go func() {
@@ -136,11 +137,15 @@ func Split(source <-chan uint32, n int) int {
 
 				}
 			}
-			res += cnt
+			res <- cnt
 			wG.Done()
 		}()
 	}
 	wG.Wait()
 
-	return res
+	for i := 0; i < n*n; i++ {
+		cnt += <-res
+	}
+
+	return cnt
 }
