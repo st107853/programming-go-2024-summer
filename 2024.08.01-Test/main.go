@@ -117,35 +117,24 @@ func FileScaner(name string) int {
 }
 
 func Split(source <-chan uint32, n int) int {
-	fmt.Println(n)
 	var wG sync.WaitGroup // Use WaitGroup to wait until
 	wG.Add(n * n)
 	var result = shard.NewShardedMap(n)
 	// Create the dests slice
 	// Create n destination channels
 
-	res := make(chan int, 100)
-	cnt := 0
-
 	for i := 0; i < n*n; i++ {
 		go func() {
-			cnt := 0
 			for val := range source {
 				if ok := result.Get(val); !ok {
 					result.Set(val, true)
-					cnt++
 
 				}
 			}
-			res <- cnt
 			wG.Done()
 		}()
 	}
 	wG.Wait()
 
-	for i := 0; i < n*n; i++ {
-		cnt += <-res
-	}
-
-	return cnt
+	return result.Len()
 }

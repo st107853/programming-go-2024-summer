@@ -1,4 +1,4 @@
-// Package shard
+// Package naive provides a "naive" algorithm for solving the test problem
 package shard
 
 import (
@@ -53,29 +53,12 @@ func (m ShardedMap) Set(key uint32, value bool) {
 	shard.m[key] = value
 }
 
-func (m ShardedMap) Keys() []uint32 {
-	keys := make([]uint32, 0)
-
-	mutex := sync.Mutex{}
-
-	wg := sync.WaitGroup{}
-	wg.Add(len(m))
+func (m ShardedMap) Len() int {
+	res := 0
 
 	for _, shard := range m {
-		go func(s *Shard) {
-			s.RLock()
-
-			for key := range s.m {
-				mutex.Lock()
-				keys = append(keys, key)
-				mutex.Unlock()
-			}
-
-			s.RUnlock()
-			wg.Done()
-		}(shard)
+		res += len(shard.m)
 	}
-	wg.Wait()
 
-	return keys
+	return res
 }
