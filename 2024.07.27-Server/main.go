@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -18,8 +17,9 @@ var port = os.Getenv("PORT")
 
 func main() {
 	album.Connect()
+	file, _ := os.Create("log.txt")
 
-	balancConnecting()
+	//	balancConnecting()
 
 	mux := http.NewServeMux()
 
@@ -27,13 +27,16 @@ func main() {
 	mux.HandleFunc("GET /albums/{id}", getAlbumByID)
 	mux.HandleFunc("POST /albums/{title}/{artist}/{price}", postAlbums)
 
+	logger := log.New(file, "", log.LstdFlags)
+
 	// create http server
 	server := http.Server{
 		Addr:         fmt.Sprintf(":%v", port),
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 90 * time.Second,
-		IdleTimeout:  120 * time.Second,
-		Handler:      mux,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  15 * time.Second,
+		Handler:      logging(logger)(mux),
+		ErrorLog:     logger,
 	}
 
 	log.Printf("Server started at :%v\n", port)
@@ -42,23 +45,31 @@ func main() {
 	}
 }
 
+func logging(logger *log.Logger) func(http.Handler) http.Handler {
+	return func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer func() {
+				logger.Println(r.URL, r.Method)
+			}()
+			h.ServeHTTP(w, r)
+		})
+	}
+}
+
 // getAlbums responds with the list of all albums as JSON
 func getAlbums(w http.ResponseWriter, r *http.Request) {
 	alb, err := album.Albums()
 	if err != nil {
-		slog.Error("Get album: %v", err.Error())
 		http.Error(w, err.Error(), 500)
 		return
 	}
 
 	out, err := json.Marshal(alb)
 	if err != nil {
-		slog.Error("Get album: %v", err.Error())
 		http.Error(w, err.Error(), 500)
 		return
 	}
 
-	slog.Info("Get albums")
 	w.Write(out)
 }
 
@@ -75,12 +86,9 @@ func postAlbums(w http.ResponseWriter, r *http.Request) {
 	//Add the new album to the slice.
 	id, err := album.AddAlbum(newAlbum)
 	if err != nil {
-		slog.Error("Post albun: %v", err.Error())
 		http.Error(w, err.Error(), 500)
 		return
 	}
-
-	slog.Info("Post albums")
 
 	mes := "new album id: " + strconv.Itoa(int(id))
 	w.Write([]byte(mes))
@@ -95,30 +103,25 @@ func getAlbumByID(w http.ResponseWriter, r *http.Request) {
 	//an album whose ID value matchea the parameter.
 	alb, err := album.AlbumByID(id)
 	if err != nil {
-		slog.Error("Get album by id: %v", err.Error())
 		http.Error(w, err.Error(), 500)
 		return
 	}
 
 	out, err := json.Marshal(alb)
 	if err != nil {
-		slog.Error("Get album by id: %v", err.Error())
 		http.Error(w, err.Error(), 500)
 		return
 	}
 
-	slog.Info("Get album by id")
-
 	w.Write(out)
 }
 
-func balancConnecting() {
+func BalancConnecting() {
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 	}
 
-	req, err := http.NewRequestWithContext(context.Background(),
-		http.MethodGet, "http://localhost:8080/", nil)
+	req, err := http.NewRequestWithContext(context.Background(), "GET", "http://localhost:8080/", nil)
 	if err != nil {
 		panic(err)
 	}
