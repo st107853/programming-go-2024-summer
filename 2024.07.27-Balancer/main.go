@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -21,6 +22,20 @@ type (
 	}
 )
 
+func isAlive(b beckend) bool {
+	if !b.Alive {
+		return false
+	}
+	timeout := 1 * time.Second
+	conn, err := net.DialTimeout("tcp", b.URL.Host, timeout)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	b.Alive = false
+	return true
+}
+
 func (sp *serverPool) add(serv string) {
 	servUrl, _ := url.Parse(serv)
 
@@ -37,7 +52,7 @@ func (s *serverPool) getNextPeer() *beckend {
 	next := (int(s.Current) + 1) % l
 	for i := range l {
 		idx := (next + i) % l
-		if s.Servers[idx].Alive {
+		if isAlive(s.Servers[idx]) {
 			s.Current = uint32(idx)
 			return &s.Servers[idx]
 		}
@@ -80,10 +95,9 @@ func Adder(h http.Handler) http.Handler {
 	})
 }
 
-var mux = Adder(loadBalancerHandler)
-
 func main() {
 	var port = 8080
+	var mux = Adder(loadBalancerHandler)
 
 	// create http server
 	server := http.Server{

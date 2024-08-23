@@ -17,9 +17,8 @@ var port = os.Getenv("PORT")
 
 func main() {
 	album.Connect()
-	file, _ := os.Create("log.txt")
 
-	//	balancConnecting()
+	file, _ := os.Create("log" + port + ".txt")
 
 	mux := http.NewServeMux()
 
@@ -38,6 +37,8 @@ func main() {
 		Handler:      logging(logger)(mux),
 		ErrorLog:     logger,
 	}
+
+	BalancConnecting()
 
 	log.Printf("Server started at :%v\n", port)
 	if err := server.ListenAndServe(); err != nil {
