@@ -17,29 +17,43 @@ type (
 	}
 
 	serverPool struct {
-		Servers []beckend
+		Servers []*beckend
 		Current uint32
 	}
 )
 
-func isAlive(b beckend) bool {
+func isAlive(b *beckend) {
 	if !b.Alive {
-		return false
+		return
 	}
 	timeout := 1 * time.Second
 	conn, err := net.DialTimeout("tcp", b.URL.Host, timeout)
 	if err != nil {
-		return false
+		b.Alive = false
 	}
-	_ = conn.Close()
-	b.Alive = false
-	return true
+	conn.Close()
+}
+
+func (sp *serverPool) HealthCheck() {
+	for _, b := range sp.Servers {
+		isAlive(b)
+	}
+}
+
+func periodHealthCheck(sp *serverPool) {
+	t := time.NewTicker(time.Second * 20)
+	for {
+		select {
+		case <-t.C:
+			sp.HealthCheck()
+		}
+	}
 }
 
 func (sp *serverPool) add(serv string) {
 	servUrl, _ := url.Parse(serv)
 
-	sp.Servers = append(sp.Servers, beckend{
+	sp.Servers = append(sp.Servers, &beckend{
 		URL:   servUrl,
 		Alive: true,
 	})
@@ -52,9 +66,9 @@ func (s *serverPool) getNextPeer() *beckend {
 	next := (int(s.Current) + 1) % l
 	for i := range l {
 		idx := (next + i) % l
-		if isAlive(s.Servers[idx]) {
+		if s.Servers[idx].Alive {
 			s.Current = uint32(idx)
-			return &s.Servers[idx]
+			return s.Servers[idx]
 		}
 	}
 	return nil
@@ -63,6 +77,8 @@ func (s *serverPool) getNextPeer() *beckend {
 var serverList serverPool
 
 var loadBalancerHandler = http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+
+	go periodHealthCheck(&serverList)
 
 	// get next server to send a request to
 	newPeer := serverList.getNextPeer()
@@ -83,11 +99,9 @@ var loadBalancerHandler = http.HandlerFunc(func(rw http.ResponseWriter, req *htt
 
 func Adder(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println(r.Header.Get("TODO"))
 		if r.Header.Get("TODO") == "Add me" {
 			serverList.add(r.Header.Get("serv"))
 
-			fmt.Println(serverList)
 			return
 		}
 
