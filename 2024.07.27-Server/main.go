@@ -3,30 +3,30 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"strconv"
 	"time"
 
-	"pet-progect.com/album"
+	"github.com/gorilla/mux"
 )
 
 var port = os.Getenv("PORT")
+var logger TransactionLogger
 
 func main() {
-	album.Connect()
 
-	file, _ := os.Create("log" + port + ".txt")
+	err := initializeTransactionLog()
+	if err != nil {
+		panic(err)
+	}
 
-	mux := http.NewServeMux()
+	r := mux.NewRouter()
 
-	mux.HandleFunc("GET /albums", getAlbums)
-	mux.HandleFunc("GET /albums/{id}", getAlbumByID)
-	mux.HandleFunc("POST /albums/{title}/{artist}/{price}", postAlbums)
-
-	logger := log.New(file, "", log.LstdFlags)
+	r.HandleFunc("/albums/{id}", albumGetHandler).Methods("GET")
+	r.HandleFunc("/albums/{title}/{artist}/{price}", albumPostHandler).Methods("POST")
 
 	// create http server
 	server := http.Server{
@@ -34,11 +34,10 @@ func main() {
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  15 * time.Second,
-		Handler:      logging(logger)(mux),
-		ErrorLog:     logger,
+		Handler:      r,
 	}
 
-	BalancConnecting()
+	//	BalancConnecting()
 
 	log.Printf("Server started at :%v\n", port)
 	if err := server.ListenAndServe(); err != nil {
@@ -46,75 +45,85 @@ func main() {
 	}
 }
 
-func logging(logger *log.Logger) func(http.Handler) http.Handler {
-	return func(h http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			defer func() {
-				logger.Println(r.URL, r.Method)
-			}()
-			h.ServeHTTP(w, r)
-		})
+func albumPostHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	title, artist, price := vars["title"], vars["artist"], vars["price"]
+
+	id, err := Post(title, artist, price)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+
+	logger.WritePut(id, title, artist, price)
+
+	res := fmt.Sprintf("new album id: %v", id)
+	w.Write([]byte(res))
+	// w.WriteHeader(http.StatusCreated)
 }
 
-// getAlbums responds with the list of all albums as JSON
-func getAlbums(w http.ResponseWriter, r *http.Request) {
-	alb, err := album.Albums()
-	if err != nil {
-		http.Error(w, err.Error(), 500)
+func albumGetHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	value, err := Get(id)
+
+	if errors.Is(err, ErrorNoSuchId) {
+		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-
-	out, err := json.Marshal(alb)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 
-	w.Write(out)
+	res, _ := json.Marshal(&value)
+
+	w.Write(res)
 }
 
-// postAlbums adds an album from JSON received in the request body.
-func postAlbums(w http.ResponseWriter, r *http.Request) {
-	price, _ := strconv.ParseFloat(r.PathValue("price"), 64)
+func initializeTransactionLog() error {
+	var err error
 
-	var newAlbum = album.Album{
-		Title:  r.PathValue("title"),
-		Artist: r.PathValue("artist"),
-		Price:  price,
-	}
+	logger, err = NewPostgresTransactionLogger(PostgresDbParams{
+		host:     "localhost",
+		dbName:   os.Getenv("DBNAME"),
+		user:     os.Getenv("DBUSER"),
+		password: os.Getenv("DBPASS"),
+	})
 
-	//Add the new album to the slice.
-	id, err := album.AddAlbum(newAlbum)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
+		return fmt.Errorf("failet to create transaction logger: %w", err)
 	}
 
-	mes := "new album id: " + strconv.Itoa(int(id))
-	w.Write([]byte(mes))
-}
+	events, errors := logger.ReadEvents()
+	count, ok, e := 0, true, Event{}
 
-// getAlbumByID locates the album whose ID value matches the id
-// parameter sent by the client, then returns that album as a response.
-func getAlbumByID(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.Atoi(r.PathValue("id"))
+	for ok && err == nil {
+		select {
+		case err, ok = <-errors:
 
-	//loop over the list of albums, looking for
-	//an album whose ID value matchea the parameter.
-	alb, err := album.AlbumByID(id)
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
+		case e, ok = <-events:
+			switch e.EventType {
+			case EventDelete: // Got a DELETE event!
+				err = Delete(e.Id)
+				count++
+			case EventPut: // Got a PUT event!
+				_, err = Post(e.Title, e.Artist, e.Prise)
+				count++
+			}
+		}
 	}
 
-	out, err := json.Marshal(alb)
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
+	log.Printf("%d events replayed\n", count)
 
-	w.Write(out)
+	logger.Run()
+
+	go func() {
+		for err := range logger.Err() {
+			log.Print(err)
+		}
+	}()
+
+	return err
 }
 
 func BalancConnecting() {

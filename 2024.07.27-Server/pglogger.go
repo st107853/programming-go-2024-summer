@@ -20,32 +20,35 @@ type PostgresDbParams struct {
 	password string
 }
 
-func (l *PostgresTransactionLogger) WritePut(key, title, artist, prise string) {
-	l.events <- Event{EventType: EventPut, Key: key, Title: title, Artist: artist, Prise: prise}
+func (l *PostgresTransactionLogger) WritePut(id uint64, title, artist, prise string) {
+	l.events <- Event{EventType: EventPut, Id: id, Title: title, Artist: artist, Prise: prise}
 }
 
-func (l *PostgresTransactionLogger) WriteDelete(key string) {
-	l.events <- Event{EventType: EventDelete, Key: key}
+func (l *PostgresTransactionLogger) WriteDelete(id uint64) {
+	l.events <- Event{EventType: EventDelete, Id: id}
 }
 
 func (l *PostgresTransactionLogger) Err() <-chan error {
 	return l.errors
 }
 
-func NewPostgresTransactionLogger(config PostgresDbParams) (TransactionLogger,
-	error) {
+func NewPostgresTransactionLogger(config PostgresDbParams) (TransactionLogger, error) {
 
 	connStr := fmt.Sprintf("host=%s dbname=%s user=%s password=%s",
 		config.host, config.dbName, config.user, config.password)
+
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open db: %w", err)
 	}
+
 	err = db.Ping() // Test the database connection
 	if err != nil {
 		return nil, fmt.Errorf("failed to open db connection: %w", err)
 	}
+
 	logger := &PostgresTransactionLogger{db: db}
+
 	exists, err := logger.verifyTableExists()
 	if err != nil {
 		return nil, fmt.Errorf("failed to verify table exists: %w", err)
@@ -62,22 +65,13 @@ func NewPostgresTransactionLogger(config PostgresDbParams) (TransactionLogger,
 func (l *PostgresTransactionLogger) createTable() error {
 	var err error
 
-	createQuery := `CREATE TABLE IF NOT EXISTS album (
+	createQuery := `CREATE TABLE transalbum (
 						event_type SMALLINT,
-						id INT AUTO_INCREMENT NOT NULL,
+						id INT NOT NULL,
 						title VARCHAR(128) NOT NULL,
 						artist VARCHAR(128) NOT NULL,
 						price DECIMAL(5, 2) NOT NULL,
-						PRIMARY KEY (id)
-					);
-
-					INSERT INTO album
-						(title, artist, price)
-					VALUES
-						('Blue Train', 'John Coltrane', 56.99),
-						('Griant Steps', 'John Coltrane', 63.99),
-						('Jeru', 'Gerry Mulligan', 17.99),
-						('Sarah Vaughan', 'Sarah Vaughan', 34.98);`
+					);`
 
 	_, err = l.db.Exec(createQuery)
 	if err != nil {
@@ -88,7 +82,7 @@ func (l *PostgresTransactionLogger) createTable() error {
 }
 
 func (l *PostgresTransactionLogger) verifyTableExists() (bool, error) {
-	const table = "transactions"
+	const table = "transalbum"
 
 	var result string
 
@@ -113,12 +107,12 @@ func (l *PostgresTransactionLogger) Run() {
 	l.errors = errors
 
 	go func() {
-		query := `INSERT INTO transactions
+		query := `INSERT INTO transalbum
 				(event_type, id, title, artist, price)
 				VALUES ($1, $2, $3, $4, $5)`
 		for e := range events { // Retrieve the next Event
 			_, err := l.db.Exec( // Execute the INSERT query
-				query, e.EventType, e.Key, e.Title, e.Artist, e.Prise)
+				query, e.EventType, e.Id, e.Title, e.Artist, e.Prise)
 			if err != nil {
 				errors <- err
 			}
@@ -130,7 +124,7 @@ func (l *PostgresTransactionLogger) ReadEvents() (<-chan Event, <-chan error) {
 	outEvent := make(chan Event)    // An unbuffered events channel
 	outError := make(chan error, 1) // A buffered errors channel
 
-	query := "SELECT sequence, event_type, key, value FROM transactions"
+	query := `SELECT event_type , id , title , artist , price FROM transalbum`
 
 	go func() {
 		defer close(outEvent) // Close the channels when the
@@ -149,8 +143,8 @@ func (l *PostgresTransactionLogger) ReadEvents() (<-chan Event, <-chan error) {
 		for rows.Next() { // Iterate over the rows
 
 			err = rows.Scan( // Read the values from the
-				&e.Sequence, &e.EventType, // row into the Event.
-				&e.Key, &e.Artist, &e.Prise)
+				&e.EventType, // row into the Event.
+				&e.Id, &e.Title, &e.Artist, &e.Prise)
 
 			if err != nil {
 				outError <- err
